@@ -1,14 +1,12 @@
 """行程规划 API 端点。"""
 
 import logging
-from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_db
-from app.database import async_session_factory
-from app.models.schemas import TripPlanRequest, TripPlanResponse
+from app.models.schemas import TripPlanRequest
 
 logger = logging.getLogger(__name__)
 
@@ -29,38 +27,16 @@ async def plan_trip(
     4. 将交互记录持久化到记忆系统
     5. 返回结构化的行程安排
     """
-    # 延迟导入以避免模块级循环依赖
-    from app.agent.react import ReActAgent
-    from app.agent.providers import create_llm_provider
+    from app.agent.providers import create_llm_model
+    from app.tools.langchain_tools import create_all_tools
     from app.services.trip_service import TripService
-    from app.tools.registry import ToolRegistry
-    from app.tools.local.amap_direct import (
-        AmapTextSearchTool,
-        AmapWeatherTool,
-        AmapDirectionDrivingTool,
-        AmapDirectionTransitTool,
-        AmapDirectionWalkingTool,
-    )
-    from app.tools.local.route_optimizer import RouteOptimizerTool
-    from app.tools.local.date_utils import DateRangeTool
-    from app.tools.local.currency import CurrencyConvertTool
 
     # 初始化依赖
-    registry = ToolRegistry()
-    registry.register(AmapTextSearchTool())
-    registry.register(AmapWeatherTool())
-    registry.register(AmapDirectionDrivingTool())
-    registry.register(AmapDirectionTransitTool())
-    registry.register(AmapDirectionWalkingTool())
-    registry.register(RouteOptimizerTool())
-    registry.register(DateRangeTool())
-    registry.register(CurrencyConvertTool())
-
-    llm = create_llm_provider()
-    agent = ReActAgent(llm=llm, tool_registry=registry, max_iterations=10)
+    llm = create_llm_model()
+    tools = create_all_tools()
 
     # 执行规划
-    service = TripService(db, agent, registry)
+    service = TripService(llm=llm, tools=tools, max_iterations=10)
 
     try:
         result = await service.plan_trip(

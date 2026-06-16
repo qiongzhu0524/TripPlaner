@@ -9,6 +9,7 @@
 import logging
 from typing import Any
 
+from langchain_core.language_models import BaseChatModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.memory.long_term import LongTermMemory
@@ -32,11 +33,7 @@ class MemoryManager:
     """
 
     def __init__(self, session: AsyncSession) -> None:
-        """使用数据库会话初始化。
-
-        Args:
-            session: SQLAlchemy AsyncSession。
-        """
+        """使用数据库会话初始化。"""
         self.short_term = ShortTermMemory(session)
         self.long_term = LongTermMemory(session)
 
@@ -51,13 +48,6 @@ class MemoryManager:
         1. 从长期记忆中获取用户档案（或创建默认档案）
         2. 从短期记忆中获取最近的对话历史
         3. 组装为 AgentContext
-
-        Args:
-            user_id: 用户标识符。
-            session_id: 对话会话标识符。
-
-        Returns:
-            准备好注入系统提示词的 AgentContext。
         """
         # 加载用户档案（长期记忆）
         profile = await self.long_term.get_profile(user_id)
@@ -93,7 +83,7 @@ class MemoryManager:
         user_message: str,
         assistant_message: str,
         tool_calls: list[dict] | None = None,
-        llm: Any = None,
+        llm: BaseChatModel | None = None,
     ) -> None:
         """将完整的交互轮次保存到记忆系统。
 
@@ -110,7 +100,7 @@ class MemoryManager:
             user_message: 用户的输入消息。
             assistant_message: Agent 的最终回复。
             tool_calls: 本轮次的工具调用记录。
-            llm: 用于总结/偏好提取的 LLMProvider。
+            llm: LangChain BaseChatModel，用于总结/偏好提取。
         """
         # 保存用户消息
         await self.short_term.add_message(session_id, user_id, "user", user_message)
@@ -153,12 +143,5 @@ class MemoryManager:
         role: str,
         content: str,
     ) -> None:
-        """保存单条消息（便捷包装方法）。
-
-        Args:
-            session_id: 会话标识符。
-            user_id: 用户标识符。
-            role: 消息角色。
-            content: 消息内容。
-        """
+        """保存单条消息（便捷包装方法）。"""
         await self.short_term.add_message(session_id, user_id, role, content)

@@ -1,4 +1,4 @@
-"""MCP工具适配器——将MCP服务器工具包装为ToolProtocol。
+"""MCP工具适配器——将MCP服务器工具包装为 LangChain BaseTool。
 
 支持两种连接模式：
 - stdio: 以子进程方式启动MCP服务器，通过stdin/stdout通信
@@ -11,16 +11,16 @@
 import logging
 from typing import Any
 
-from app.tools.base import ToolProtocol, ToolResult
+from langchain_core.tools import BaseTool
 
 logger = logging.getLogger(__name__)
 
 
-class MCPToolWrapper(ToolProtocol):
-    """将单个MCP工具定义包装为注册表的ToolProtocol。
+class MCPToolWrapper:
+    """将单个MCP工具定义包装为工具包装器。
 
-    包装器持有对父适配器的引用，以便execute()
-    可以委托给MCP会话执行。
+    在完整实现中，此类将实现 BaseTool 或以 StructuredTool 方式包装。
+    目前是桩实现。
     """
 
     def __init__(
@@ -35,15 +35,11 @@ class MCPToolWrapper(ToolProtocol):
         self.parameters = parameters
         self._adapter = adapter
 
-    async def execute(self, **kwargs: Any) -> ToolResult:
-        """通过父MCP适配器会话执行工具。"""
-        return await self._adapter.call_tool(self.name, kwargs)
-
 
 class MCPToolAdapter:
     """管理与一个MCP服务器的连接并包装其工具。
 
-    这是一个简化实现。在生产环境中，使用官方的
+    这是一个简化/桩实现。在生产环境中，使用官方的
     `mcp` Python SDK以获得完整的协议支持（生命周期、工具列表、
     工具调用、错误处理）。
     """
@@ -106,17 +102,14 @@ class MCPToolAdapter:
 
         logger.info(f"Connecting to MCP server '{self.server_name}' via {self._mode}")
 
-        # 在完整实现中，我们会：
-        # 1. 启动子进程/打开SSE连接
-        # 2. 执行MCP初始化握手
-        # 3. 调用tools/list获取工具定义
-        # 4. 为找到的每个工具创建MCPToolWrapper
-
         # 占位：创建桩工具以使系统具备功能
         self.tools.append(
             MCPToolWrapper(
                 name=f"{self.server_name}_stub",
-                description=f"Stub tool for MCP server '{self.server_name}'. Full MCP integration requires the mcp SDK.",
+                description=(
+                    f"Stub tool for MCP server '{self.server_name}'. "
+                    f"Full MCP integration requires the mcp SDK."
+                ),
                 parameters={
                     "type": "object",
                     "properties": {
@@ -129,24 +122,27 @@ class MCPToolAdapter:
         )
 
         self._connected = True
-        logger.info(f"MCP server '{self.server_name}' connected with {len(self.tools)} tools")
+        logger.info(
+            f"MCP server '{self.server_name}' connected with {len(self.tools)} tools"
+        )
 
     async def disconnect(self) -> None:
         """关闭连接/终止子进程。"""
         self._connected = False
         logger.info(f"MCP server '{self.server_name}' disconnected")
 
-    async def call_tool(self, tool_name: str, arguments: dict[str, Any]) -> ToolResult:
+    async def call_tool(self, tool_name: str, arguments: dict[str, Any]) -> dict:
         """在此MCP服务器上调用特定工具。
 
         在完整实现中，这将通过MCP会话发送tools/call请求
         并返回结果。
         """
         if not self._connected:
-            return ToolResult(success=False, error="MCP server not connected")
+            return {"error": "MCP server not connected"}
 
-        logger.debug(f"Calling MCP tool '{tool_name}' on '{self.server_name}' with args: {arguments}")
-        return ToolResult(
-            success=True,
-            data={"message": f"MCP tool '{tool_name}' stub response. Full implementation pending."},
+        logger.debug(
+            f"Calling MCP tool '{tool_name}' on '{self.server_name}' with args: {arguments}"
         )
+        return {
+            "message": f"MCP tool '{tool_name}' stub response. Full implementation pending."
+        }

@@ -40,8 +40,9 @@ class DatabaseConfig(BaseSettings):
 class MemoryConfig(BaseSettings):
     """记忆系统配置。"""
 
+    model_config = SettingsConfigDict(extra="ignore")
+
     short_term_max_tokens: int = 4000
-    short_term_summary_model: str = "gpt-4o-mini"
     long_term_enabled: bool = True
 
 

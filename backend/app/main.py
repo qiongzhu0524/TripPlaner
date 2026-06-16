@@ -17,10 +17,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     import logging
 
     logger = logging.getLogger(__name__)
-    logger.info(f"Starting TripPlaner AI v0.1.0")
-    # TODO: 初始化工具注册表单例、MCP 服务器等
+    logger.info("Starting TripPlaner AI v0.1.0 (LangGraph)")
+
+    # TODO: 初始化 MCP 服务器连接
     yield
-    # TODO: 关闭：关闭 MCP 会话、数据库连接
+
     logger.info("Shutting down TripPlaner AI")
 
 
@@ -29,7 +30,7 @@ def create_app() -> FastAPI:
     app = FastAPI(
         title="TripPlaner AI",
         version="0.1.0",
-        description="AI-powered trip planning assistant with ReAct agent, MCP tools, memory, and RAG",
+        description="AI-powered trip planning assistant with LangGraph ReAct agent",
         lifespan=lifespan,
     )
 

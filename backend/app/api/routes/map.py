@@ -5,7 +5,6 @@ import logging
 from fastapi import APIRouter, HTTPException, Query
 
 from app.models.schemas import (
-    POISearchRequest,
     POISearchResponse,
     POIItem,
     WeatherResponse,
@@ -27,17 +26,15 @@ async def search_poi(
 ) -> POISearchResponse:
     """通过高德 API 搜索 POI（兴趣点）。
 
-    直接调用工具 — 不经过 Agent。
+    直接调用工具函数 — 不经过 Agent。
     """
-    from app.tools.local.amap_direct import AmapTextSearchTool
+    from app.tools.local.amap_direct import search_poi as _search_poi
 
-    tool = AmapTextSearchTool()
-    result = await tool.execute(keywords=keywords, city=city, limit=limit)
+    result = await _search_poi(keywords=keywords, city=city, limit=limit)
 
-    if not result.success:
-        raise HTTPException(status_code=500, detail=result.error)
+    if "error" in result:
+        raise HTTPException(status_code=500, detail=result["error"])
 
-    data = result.data or {}
     pois = [
         POIItem(
             name=p.get("name", ""),
@@ -47,10 +44,10 @@ async def search_poi(
             category=p.get("category", ""),
             rating=p.get("rating", ""),
         )
-        for p in data.get("results", [])
+        for p in result.get("results", [])
     ]
 
-    return POISearchResponse(results=pois, total=data.get("total", 0))
+    return POISearchResponse(results=pois, total=result.get("total", 0))
 
 
 @router.get("/weather", response_model=WeatherResponse)
@@ -58,15 +55,13 @@ async def get_weather(
     city: str = Query(..., description="城市名称"),
 ) -> WeatherResponse:
     """通过高德 API 查询天气预报。"""
-    from app.tools.local.amap_direct import AmapWeatherTool
+    from app.tools.local.amap_direct import query_weather as _query_weather
 
-    tool = AmapWeatherTool()
-    result = await tool.execute(city=city)
+    result = await _query_weather(city=city)
 
-    if not result.success:
-        raise HTTPException(status_code=500, detail=result.error)
+    if "error" in result:
+        raise HTTPException(status_code=500, detail=result["error"])
 
-    data = result.data or {}
     forecasts = [
         WeatherForecastItem(
             date=f.get("date", ""),
@@ -76,7 +71,7 @@ async def get_weather(
             wind=f.get("day_wind", ""),
             humidity=0,
         )
-        for f in data.get("forecasts", [])
+        for f in result.get("forecasts", [])
     ]
 
     return WeatherResponse(city=city, forecasts=forecasts)
@@ -86,33 +81,29 @@ async def get_weather(
 async def plan_route(req: RouteRequest) -> RouteResponse:
     """规划两个地点之间的路线。"""
     from app.tools.local.amap_direct import (
-        AmapDirectionDrivingTool,
-        AmapDirectionTransitTool,
-        AmapDirectionWalkingTool,
+        get_driving_route,
+        get_transit_route,
+        get_walking_route,
     )
 
-    tool_map = {
-        "driving": AmapDirectionDrivingTool(),
-        "transit": AmapDirectionTransitTool(),
-        "walking": AmapDirectionWalkingTool(),
-    }
-
-    tool = tool_map.get(req.mode)
-    if not tool:
+    if req.mode == "driving":
+        result = await get_driving_route(
+            origin=req.origin, destination=req.destination, city=req.city
+        )
+    elif req.mode == "transit":
+        result = await get_transit_route(
+            origin=req.origin, destination=req.destination, city=req.city
+        )
+    elif req.mode == "walking":
+        result = await get_walking_route(origin=req.origin, destination=req.destination)
+    else:
         raise HTTPException(status_code=400, detail=f"Invalid mode: {req.mode}")
 
-    kwargs = {"origin": req.origin, "destination": req.destination}
-    if req.mode == "transit":
-        kwargs["city"] = req.city
+    if "error" in result:
+        raise HTTPException(status_code=500, detail=result["error"])
 
-    result = await tool.execute(**kwargs)
-
-    if not result.success:
-        raise HTTPException(status_code=500, detail=result.error)
-
-    data = result.data or {}
     return RouteResponse(
-        distance=data.get("distance", ""),
-        duration=data.get("duration", ""),
-        steps=[s.get("instruction", "") for s in data.get("steps", [])],
+        distance=result.get("distance", ""),
+        duration=result.get("duration", ""),
+        steps=[s.get("instruction", "") for s in result.get("steps", [])],
     )

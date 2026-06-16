@@ -6,10 +6,8 @@ and provides lifecycle hooks for startup/shutdown.
 
 import asyncio
 import logging
-from typing import Any
 
 from app.tools.mcp.adapter import MCPToolAdapter
-from app.tools.registry import ToolRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -19,24 +17,22 @@ class MCPSessionManager:
 
     Each MCP server runs as a subprocess (or connects via SSE) and exposes
     one or more tools. The manager starts each server, discovers its tools,
-    wraps them as ToolProtocol adapters, and registers them in the ToolRegistry.
+    and returns them as a flat list.
 
     Usage:
-        manager = MCPSessionManager(registry, mcp_configs)
-        await manager.start_all()
-        # ... tools are now available ...
+        manager = MCPSessionManager(mcp_configs)
+        tools = await manager.start_all()
+        # ... use tools ...
         await manager.stop_all()
     """
 
     def __init__(
         self,
-        registry: ToolRegistry,
         server_configs: list[dict] | None = None,
     ) -> None:
         """Initialize the MCP session manager.
 
         Args:
-            registry: The ToolRegistry to register discovered tools into.
             server_configs: List of MCP server configs. Each dict has:
                 - name: str — server identifier
                 - command: list[str] — command and args to start the server
@@ -45,18 +41,16 @@ class MCPSessionManager:
         """
         from app.config import settings
 
-        self.registry = registry
         self.server_configs = server_configs or settings.mcp_servers
         self._adapters: list[MCPToolAdapter] = []
-        self._processes: list[asyncio.subprocess.Process] = []
 
-    async def start_all(self) -> list[str]:
-        """Connect to all configured MCP servers and register their tools.
+    async def start_all(self) -> list:
+        """Connect to all configured MCP servers and discover their tools.
 
         Returns:
-            List of tool names that were registered.
+            List of discovered MCP tool wrappers.
         """
-        registered: list[str] = []
+        all_tools = []
 
         for server_cfg in self.server_configs:
             name = server_cfg.get("name", "unknown")
@@ -78,23 +72,28 @@ class MCPSessionManager:
                         env=env,
                     )
                 else:
-                    logger.warning(f"MCP server '{name}' has no command or url, skipping")
+                    logger.warning(
+                        f"MCP server '{name}' has no command or url, skipping"
+                    )
                     continue
 
                 await adapter.connect()
                 self._adapters.append(adapter)
 
-                # Register each discovered tool
                 for tool in adapter.tools:
-                    self.registry.register(tool)
-                    registered.append(tool.name)
-                    logger.info(f"Registered MCP tool: {tool.name} from server '{name}'")
+                    all_tools.append(tool)
+                    logger.info(
+                        f"Registered MCP tool: {tool.name} from server '{name}'"
+                    )
 
             except Exception as e:
                 logger.error(f"Failed to start MCP server '{name}': {e}")
 
-        logger.info(f"MCP manager started: {len(registered)} tools from {len(self._adapters)} servers")
-        return registered
+        logger.info(
+            f"MCP manager started: {len(all_tools)} tools "
+            f"from {len(self._adapters)} servers"
+        )
+        return all_tools
 
     async def stop_all(self) -> None:
         """Disconnect all MCP sessions and clean up."""

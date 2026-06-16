@@ -4,16 +4,20 @@
 - 滑动窗口：在 Token 预算内仅保留最近的消息
 - 自动总结：当历史记录超出 Token 预算时，使用轻量级 LLM 总结旧消息并用摘要替代
 - 基于会话的隔离：每个 session_id 独立管理
+- 底层使用 LangChain BaseChatMessageHistory 接口持久化
 """
 
 import logging
 from datetime import datetime, timezone
 from typing import Any
 
+from langchain_core.language_models import BaseChatModel
+from langchain_core.messages import HumanMessage, SystemMessage
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
+from app.memory.chat_history import ConversationMessageHistory
 from app.memory.models import ConversationMessage
 
 logger = logging.getLogger(__name__)
@@ -110,7 +114,7 @@ class ShortTermMemory:
     async def summarize_and_compress(
         self,
         session_id: str,
-        llm: Any,  # LLMProvider — 避免循环导入
+        llm: BaseChatModel,
     ) -> str | None:
         """总结旧消息并用摘要替换它们。
 
@@ -122,7 +126,7 @@ class ShortTermMemory:
 
         Args:
             session_id: 要压缩的会话。
-            llm: 用于生成摘要的 LLMProvider 实例。
+            llm: LangChain BaseChatModel 实例。
 
         Returns:
             摘要文本，如果不需要压缩则返回 None。
@@ -140,7 +144,9 @@ class ShortTermMemory:
             return None
 
         # 检查是否需要压缩
-        total_tokens = sum(m.token_count or len(m.content) // CHARS_PER_TOKEN for m in all_messages)
+        total_tokens = sum(
+            m.token_count or len(m.content) // CHARS_PER_TOKEN for m in all_messages
+        )
         if total_tokens <= self._max_tokens:
             return None
 
@@ -168,19 +174,15 @@ class ShortTermMemory:
         )
 
         summary_prompt = [
-            {
-                "role": "system",
-                "content": "Summarize the following conversation. Include key decisions, user preferences mentioned, and important context. Keep it concise (2-3 paragraphs).",
-            },
-            {"role": "user", "content": conversation_text},
+            SystemMessage(content=(
+                "Summarize the following conversation. Include key decisions, "
+                "user preferences mentioned, and important context. Keep it concise (2-3 paragraphs)."
+            )),
+            HumanMessage(content=conversation_text),
         ]
 
         try:
-            response = await llm.generate(
-                messages=summary_prompt,
-                max_tokens=500,
-                temperature=0.3,
-            )
+            response = await llm.ainvoke(summary_prompt)
             summary = f"[Conversation Summary]: {response.content}"
         except Exception as e:
             logger.error(f"Summarization failed: {e}")
@@ -196,7 +198,7 @@ class ShortTermMemory:
             role="system",
             content=summary,
             token_count=len(summary) // CHARS_PER_TOKEN,
-            created_at=old_messages[-1].created_at,  # 按时间顺序放置
+            created_at=old_messages[-1].created_at,
         )
         self._session.add(summary_msg)
         await self._session.flush()
